@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<title>滴滴大神养成记 - 全链路测试版</title>
+	<style>
+		:root { --primary: #ff8903; --bg: #f5f7fa; }
+		body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg); margin: 0; display: flex; justify-content: center; }
+		.app-container { width: 100%; max-width: 500px; background: white; min-height: 100vh; display: flex; flex-direction: column; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+		.header { background: linear-gradient(135deg, #ffb347, #ff8903); color: white; padding: 25px; text-align: center; }
+		.score-board { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 15px; background: #fff; border-bottom: 5px solid var(--bg); }
+		.stat-card { background: #fff8f0; padding: 10px; border-radius: 8px; text-align: center; }
+		.stat-label { font-size: 12px; color: #666; }
+		.stat-val { font-size: 18px; font-weight: bold; color: var(--primary); }
+		.click-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
+		.main-btn { width: 180px; height: 180px; border-radius: 50%; border: 8px solid #ffe8cc; background: white; cursor: pointer; position: relative; transition: 0.1s; }
+		.main-btn:active { transform: scale(0.92); }
+		.main-btn img { width: 100px; }
+		.shop-container { height: 300px; overflow-y: auto; background: #fff; padding: 15px; border-top: 2px solid #eee; }
+		.item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #f0f0f0; }
+		.buy-btn { background: var(--primary); color: white; border: none; padding: 8px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+		.buy-btn:disabled { background: #ccc; }
+		.log-overlay { height: 50px; background: rgba(0,0,0,0.05); font-size: 12px; padding: 5px 15px; color: #777; overflow: hidden; }
+	</style>
+</head>
+<body>
+<div class="app-container">
+	<div class="header">
+		<h2 id="rank">称号：顺风菜鸟</h2>
+		<div style="font-size: 14px; opacity: 0.9;">等级：<span id="lv">1</span> / 3000</div>
+	</div>
+	<div class="score-board">
+		<div class="stat-card"><div class="stat-label">总钞票</div><div class="stat-val" id="money">0</div></div>
+		<div class="stat-card"><div class="stat-label">秒赚收益</div><div class="stat-val" id="pps">0</div></div>
+		<div class="stat-card"><div class="stat-label">星级评价</div><div class="stat-val" id="stars">1.0 ★</div></div>
+		<div class="stat-card"><div class="stat-label">升级需</div><div class="stat-val" id="nextCost">10</div></div>
+	</div>
+	<div class="log-overlay" id="logs">欢迎开启滴滴大神之路...</div>
+	<div class="click-area">
+		<button class="main-btn" onclick="handleTap()">
+			<div style="font-size: 40px;">🚕</div>
+			<div style="font-weight: bold; color: var(--primary);">点击出车</div>
+		</button>
+		<button class="buy-btn" style="margin-top: 20px; width: 200px;" id="lvBtn" onclick="levelUp()">提升司机等级</button>
+	</div>
+	<div class="shop-container" id="shop">
+		</div>
+</div>
+
+<script>
+	// 1. 23个等级称号数据
+	const RANKS = [
+		{lv: 1, name: "流浪车友"}, {lv: 10, name: "顺风新人"}, {lv: 30, name: "职业司机"}, 
+		{lv: 60, name: "黑铁车长"}, {lv: 100, name: "青铜车长"}, {lv: 150, name: "白银车长"},
+		{lv: 220, name: "黄金车长"}, {lv: 300, name: "白金车长"}, {lv: 400, name: "翡翠车长"},
+		{lv: 500, name: "钻石车长"}, {lv: 600, name: "大师车长"}, {lv: 700, name: "宗师车长"},
+		{lv: 850, name: "神豪车长"}, {lv: 1000, name: "魔都车长"}, {lv: 1150, name: "帝都车长"},
+		{lv: 1300, name: "护国车长"}, {lv: 1500, name: "镇国车长"}, {lv: 1700, name: "蓝星车长"},
+		{lv: 1900, name: "太阳车长"}, {lv: 2100, name: "猎户车长"}, {lv: 2400, name: "银河车长"},
+		{lv: 2700, name: "宇宙车长"}, {lv: 3000, name: "时空穿梭者"}
+	];
+
+	// 2. 商店数据（重构自附件配件与助手系统）
+	const SHOP_ITEMS = [
+		{id: 1, type: 'acc', name: "车载香氛", baseCost: 3e7, income: 3000, unlock: 30},
+		{id: 2, type: 'acc', name: "真皮座套", baseCost: 2e8, income: 20000, unlock: 30},
+		{id: 3, type: 'helper', name: "助手：林悦舒", baseCost: 1e3, income: 2, unlock: 10},
+		{id: 4, type: 'helper', name: "助手：沈冰岚", baseCost: 5e4, income: 10, unlock: 30},
+		{id: 5, type: 'car', name: "二手捷达", baseCost: 2e12, income: 2e7, unlock: 300}
+	];
+
+	let game = {
+		money: 0, level: 1, incomePerSec: 0, 
+		baseClick: 2, nextLvCost: 10, itemsOwned: []
+	};
+
+	function formatNum(num) {
+		if (num < 1e4) return Math.floor(num);
+		if (num < 1e8) return (num/1e4).toFixed(2) + "万";
+		if (num < 1e12) return (num/1e8).toFixed(2) + "亿";
+		return (num/1e12).toFixed(2) + "兆";
+	}
+
+	function handleTap() {
+		let gain = game.level * 2; // 基础公式：等级 × 2
+		game.money += gain;
+		showFloatingText(`+${gain}`);
+		updateUI();
+	}
+
+	function levelUp() {
+		if (game.money >= game.nextLvCost) {
+			game.money -= game.nextLvCost;
+			game.level++;
+			game.nextLvCost = Math.floor(game.nextLvCost * 1.05); // 系数 1.05
+			checkRank();
+			updateUI();
+			addLog("职业等级提升！接单单价上涨。");
+		}
+	}
+
+	function checkRank() {
+		let currentRank = RANKS[0].name;
+		for (let r of RANKS) {
+			if (game.level >= r.lv) currentRank = r.name;
+		}
+		document.getElementById('rank').innerText = "称号：" + currentRank;
+	}
+
+	function buyItem(id) {
+		let item = SHOP_ITEMS.find(i => i.id === id);
+		let cost = item.baseCost; 
+		if (game.money >= cost) {
+			game.money -= cost;
+			game.incomePerSec += item.income;
+			game.itemsOwned.push(id);
+			addLog(`解锁了 ${item.name}，自动收益增加！`);
+			updateUI();
+		}
+	}
+
+	function updateUI() {
+		document.getElementById('money').innerText = formatNum(game.money);
+		document.getElementById('pps').innerText = formatNum(game.incomePerSec);
+		document.getElementById('lv').innerText = game.level;
+		document.getElementById('nextCost').innerText = formatNum(game.nextLvCost);
+		document.getElementById('lvBtn').disabled = game.money < game.nextLvCost;
+
+		// 渲染商店
+		const shopHtml = SHOP_ITEMS.map(item => {
+			const isUnlocked = game.level >= item.unlock;
+			const isBought = game.itemsOwned.includes(item.id);
+			return `
+				<div class="item" style="opacity: ${isUnlocked ? 1 : 0.5}">
+					<div>
+						<strong>${item.name}</strong><br>
+						<small>${isUnlocked ? '收益: +'+formatNum(item.income)+'/秒' : item.unlock+'级解锁'}</small>
+					</div>
+					<button class="buy-btn" 
+						${(!isUnlocked || isBought || game.money < item.baseCost) ? 'disabled' : ''} 
+						onclick="buyItem(${item.id})">
+						${isBought ? '已拥有' : formatNum(item.baseCost)}
+					</button>
+				</div>
+			`;
+		}).join('');
+		document.getElementById('shop').innerHTML = shopHtml;
+	}
+
+	function addLog(m) {
+		document.getElementById('logs').innerText = m;
+	}
+
+	function showFloatingText(txt) {
+		addLog("正在接单中... " + txt);
+	}
+
+	setInterval(() => {
+		game.money += game.incomePerSec / 10;
+		updateUI();
+	}, 100);
+
+	updateUI();
+</script>
+</body>
+</html>
